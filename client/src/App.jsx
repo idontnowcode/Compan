@@ -7,8 +7,9 @@ import Deliverables from "./components/Deliverables";
 import ActivityFeed from "./components/ActivityFeed";
 import "./App.css";
 
-const WS_URL = "ws://localhost:3001";
-const API_URL = "http://localhost:3001/api";
+const HOST = window.location.hostname;
+const WS_URL = `ws://${HOST}:3001`;
+const API_URL = `http://${HOST}:3001/api`;
 
 const tabs = [
   { key: "overview", label: "개요", icon: "🏠" },
