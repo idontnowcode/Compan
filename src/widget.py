@@ -26,8 +26,8 @@ ROW_BG      = "#1E293B"
 ROW_HOV     = "#334155"
 
 WIDGET_W    = 300
-WIDGET_H_BASE   = 82    # URL 입력만 있을 때
-WIDGET_H_PANEL  = 232   # 미확인 목록 펼쳤을 때
+WIDGET_H_BASE   = 76    # URL 입력만 있을 때
+WIDGET_H_PANEL  = 226   # 미확인 목록 펼쳤을 때
 
 
 def _bind_hover(w: tk.Widget, n: str, h: str):
@@ -158,7 +158,7 @@ class CompanWidget:
     # ── URL 입력 본문 ──────────────────────────────────────
 
     def _build_body(self, win):
-        body = tk.Frame(win, bg=BG, padx=10, pady=10)
+        body = tk.Frame(win, bg=BG, padx=10, pady=8)
         body.pack(fill=tk.X)
         self._body_frame = body
 
@@ -173,6 +173,7 @@ class CompanWidget:
         )
         self._entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6, padx=(0, 6))
         self._entry.bind("<Return>", self._do_add)
+        self._entry.bind("<Key>", self._on_entry_key)
         self._entry.focus_set()
 
         self._btn_add = tk.Button(
@@ -183,12 +184,8 @@ class CompanWidget:
         self._btn_add.pack(side=tk.RIGHT, ipady=2)
         _bind_hover(self._btn_add, ACCENT, ACCENT_HOV)
 
-        self._status_var = tk.StringVar()
-        self._status_lbl = tk.Label(
-            body, textvariable=self._status_var,
-            bg=BG, fg=SUBTEXT, font=("Segoe UI", 8),
-        )
-        self._status_lbl.pack(anchor="w", pady=(4, 0))
+        self._feedback_mode = False
+        self._saved_url = ""
 
     # ── 미확인 목록 패널 ──────────────────────────────────
 
@@ -309,15 +306,34 @@ class CompanWidget:
 
     # ── 링크 추가 ─────────────────────────────────────────
 
+    def _on_entry_key(self, _event=None):
+        """피드백 표시 중 키 입력 시 입력창 초기화"""
+        if self._feedback_mode:
+            self._reset_entry(self._saved_url)
+
+    def _entry_feedback(self, msg: str, fg: str, bg: str):
+        self._feedback_mode = True
+        self._url_var.set(msg)
+        self._entry.config(fg=fg, bg=bg, state="disabled")
+
+    def _reset_entry(self, restore: str = ""):
+        self._feedback_mode = False
+        self._entry.config(fg=TEXT, bg=ENTRY_BG, state="normal")
+        self._url_var.set(restore)
+        if not restore:
+            self._entry.focus_set()
+
     def _do_add(self, _event=None):
+        if self._feedback_mode:
+            return
         url = self._url_var.get().strip()
         if not url:
             return
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
-            self._url_var.set(url)
 
-        self._set_status("제목 가져오는 중…", SUBTEXT)
+        self._saved_url = url
+        self._entry_feedback("  가져오는 중…", SUBTEXT, ENTRY_BG)
         self._btn_add.config(state="disabled")
 
         def _run():
@@ -331,18 +347,15 @@ class CompanWidget:
         threading.Thread(target=_run, daemon=True).start()
 
     def _on_success(self):
-        self._url_var.set("")
-        self._set_status("✓ 등록 완료!", SUCCESS)
+        self._entry_feedback("✓  등록 완료!", SUCCESS, "#162d1f")
         self._btn_add.config(state="normal")
-        self._win.after(2500, lambda: self._set_status("", SUBTEXT))
+        self._win.after(2200, lambda: self._reset_entry())
 
     def _on_error(self, msg: str):
-        self._set_status(f"오류: {msg}", ERROR)
+        short = msg[:32] if len(msg) > 32 else msg
+        self._entry_feedback(f"⚠  {short}", ERROR, "#2d1616")
         self._btn_add.config(state="normal")
-
-    def _set_status(self, msg: str, color: str):
-        self._status_var.set(msg)
-        self._status_lbl.config(fg=color)
+        self._win.after(3000, lambda: self._reset_entry(self._saved_url))
 
     # ── 드래그 ────────────────────────────────────────────
 
