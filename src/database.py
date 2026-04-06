@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-DB_PATH = Path.home() / ".compan" / "compan.db"
+DB_PATH = Path.home() / ".rested" / "rested.db"
 
 REVIEW_INTERVALS = [1, 3, 7, 14, 30]   # 에빙하우스 복기 주기 (일)
 SNOOZE_HOURS     = 3                    # 미확인 시 재알림 주기 (시간)

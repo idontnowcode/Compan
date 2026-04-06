@@ -74,8 +74,9 @@ class ConfirmPopup:
         header.pack(fill=tk.X)
         header.pack_propagate(False)
 
+        header_text = "  🧪  테스트 알림" if interval_days == 0 else f"  📖  {interval_days}일차 복기 알림"
         tk.Label(
-            header, text=f"  📖  {interval_days}일차 복기 알림",
+            header, text=header_text,
             bg=HEADER, fg=TEXT, font=("Segoe UI", 8, "bold"),
         ).pack(side=tk.LEFT)
 

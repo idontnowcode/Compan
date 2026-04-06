@@ -26,8 +26,8 @@ ROW_BG      = "#1E293B"
 ROW_HOV     = "#334155"
 
 WIDGET_W    = 300
-WIDGET_H_BASE   = 110   # URL 입력만 있을 때
-WIDGET_H_PANEL  = 260   # 미확인 목록 펼쳤을 때
+WIDGET_H_BASE   = 82    # URL 입력만 있을 때
+WIDGET_H_PANEL  = 232   # 미확인 목록 펼쳤을 때
 
 
 def _bind_hover(w: tk.Widget, n: str, h: str):
@@ -122,7 +122,7 @@ class CompanWidget:
         bar.bind("<ButtonPress-1>", self._drag_start)
         bar.bind("<B1-Motion>",     self._drag_move)
 
-        lbl = tk.Label(bar, text=" ◉  Compan", bg=TITLEBAR, fg=TEXT,
+        lbl = tk.Label(bar, text=" ◉  Rested", bg=TITLEBAR, fg=TEXT,
                        font=("Segoe UI", 9, "bold"), cursor="fleur")
         lbl.pack(side=tk.LEFT, padx=6)
         lbl.bind("<ButtonPress-1>", self._drag_start)
@@ -158,15 +158,12 @@ class CompanWidget:
     # ── URL 입력 본문 ──────────────────────────────────────
 
     def _build_body(self, win):
-        body = tk.Frame(win, bg=BG, padx=12, pady=8)
+        body = tk.Frame(win, bg=BG, padx=10, pady=10)
         body.pack(fill=tk.X)
         self._body_frame = body
 
-        tk.Label(body, text="URL을 입력하고 Enter", bg=BG, fg=SUBTEXT,
-                 font=("Segoe UI", 8)).pack(anchor="w")
-
         row = tk.Frame(body, bg=BG)
-        row.pack(fill=tk.X, pady=(4, 0))
+        row.pack(fill=tk.X)
 
         self._url_var = tk.StringVar()
         self._entry = tk.Entry(
@@ -174,16 +171,16 @@ class CompanWidget:
             font=("Segoe UI", 10), relief="flat",
             bg=ENTRY_BG, fg=TEXT, insertbackground=TEXT,
         )
-        self._entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=5, padx=(0, 6))
+        self._entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6, padx=(0, 6))
         self._entry.bind("<Return>", self._do_add)
         self._entry.focus_set()
 
         self._btn_add = tk.Button(
-            row, text="추가", font=("Segoe UI", 9, "bold"),
+            row, text="+", font=("Segoe UI", 13, "bold"),
             bg=ACCENT, fg="white", relief="flat", cursor="hand2",
-            padx=10, command=self._do_add,
+            width=2, command=self._do_add,
         )
-        self._btn_add.pack(side=tk.RIGHT)
+        self._btn_add.pack(side=tk.RIGHT, ipady=2)
         _bind_hover(self._btn_add, ACCENT, ACCENT_HOV)
 
         self._status_var = tk.StringVar()
