@@ -85,11 +85,11 @@ class ConfirmPopup:
         btn_row.pack(fill="x")
 
         ctk.CTkButton(
-            btn_row, text="✓  열기 + 확인",
+            btn_row, text="🔗  열기",
             height=28, corner_radius=8,
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            fg_color=OK, hover_color=OKH,
-            command=self._confirm,
+            fg_color=SN, hover_color=SNH, text_color=TEXT,
+            command=self._open,
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
@@ -102,10 +102,9 @@ class ConfirmPopup:
 
         return win
 
-    def _confirm(self):
+    def _open(self):
+        """링크만 열기 — 확인은 앱 리스트에서 직접 체크"""
         webbrowser.open(self._url)
-        self._on_confirm(self._review_id)
-        self._on_badge_update()
         self._close()
 
     def _snooze(self):
