@@ -2,17 +2,16 @@
 main.py - Compan 진입점
 
 아키텍처:
-  - 메인 스레드 : Tkinter mainloop (숨겨진 root + 플로팅 위젯 / 다이얼로그)
+  - 메인 스레드 : Tkinter mainloop (위젯 + 팝업)
   - 데몬 스레드1: pystray 시스템 트레이
   - 데몬 스레드2: 복기 알림 스케줄러
 
-트레이 → UI 호출은 반드시 root.after(0, fn) 로 메인 스레드에 위임.
+트레이 / 스케줄러 → UI 호출은 반드시 root.after(0, fn) 로 메인 스레드에 위임.
 """
 import sys
 import threading
 from pathlib import Path
 
-# PyInstaller 번들 환경에서 src 경로 보장
 if getattr(sys, "frozen", False):
     _base = Path(sys.executable).parent
 else:
@@ -25,6 +24,7 @@ import database
 import ui
 from scheduler import ReviewScheduler
 from widget import CompanWidget
+from confirm_popup import show_confirm_popup
 
 try:
     import pystray
@@ -87,27 +87,40 @@ def _build_tray_menu(root: tk.Tk, widget: CompanWidget,
 def main():
     database.init_db()
 
-    # 숨겨진 Tkinter 루트 — mainloop 전용
     root = tk.Tk()
     root.withdraw()
     root.title("Compan")
 
-    # 플로팅 위젯 생성 후 즉시 표시
+    # 위젯 생성 + DB 콜백 주입
     widget = CompanWidget(root, on_add_callback=database.add_link)
+    widget.set_db_callbacks(
+        get_unconfirmed=database.get_unconfirmed_reviews,
+        confirm_review=database.confirm_review,
+    )
     widget.show()
 
-    # 복기 스케줄러
-    scheduler = ReviewScheduler()
+    def on_review_due(review_id, url, title, interval_days):
+        """스케줄러 스레드에서 호출 → 메인 스레드로 팝업 위임"""
+        root.after(
+            0,
+            lambda: show_confirm_popup(
+                root, review_id, url, title, interval_days,
+                on_confirm=database.confirm_review,
+                on_badge_update=widget.update_badge,
+            ),
+        )
+        # 위젯 배지도 갱신
+        root.after(100, widget.update_badge)
+
+    scheduler = ReviewScheduler(on_review_due=on_review_due)
     scheduler.start()
 
     if _HAS_TRAY:
-        icon_img = _make_icon_image()
-        menu = _build_tray_menu(root, widget, scheduler)
-        tray = pystray.Icon("Compan", icon_img, "Compan - 복기 알림", menu)
-
-        # pystray 를 데몬 스레드에서 실행
-        tray_thread = threading.Thread(target=tray.run, daemon=True)
-        tray_thread.start()
+        tray = pystray.Icon(
+            "Compan", _make_icon_image(), "Compan - 복기 알림",
+            _build_tray_menu(root, widget, scheduler),
+        )
+        threading.Thread(target=tray.run, daemon=True).start()
     else:
         print("[Compan] pystray/Pillow 미설치 — 트레이 없이 실행합니다.")
 
