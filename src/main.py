@@ -1,109 +1,121 @@
 """
 main.py - Compan 진입점
-시스템 트레이 아이콘으로 백그라운드 실행
+
+아키텍처:
+  - 메인 스레드 : Tkinter mainloop (숨겨진 root + 플로팅 위젯 / 다이얼로그)
+  - 데몬 스레드1: pystray 시스템 트레이
+  - 데몬 스레드2: 복기 알림 스케줄러
+
+트레이 → UI 호출은 반드시 root.after(0, fn) 로 메인 스레드에 위임.
 """
 import sys
 import threading
 from pathlib import Path
 
-# PyInstaller 번들 시 src 디렉터리가 sys.path에 포함되도록
+# PyInstaller 번들 환경에서 src 경로 보장
 if getattr(sys, "frozen", False):
-    base = Path(sys.executable).parent
+    _base = Path(sys.executable).parent
 else:
-    base = Path(__file__).parent
-sys.path.insert(0, str(base))
+    _base = Path(__file__).parent
+sys.path.insert(0, str(_base))
+
+import tkinter as tk
 
 import database
 import ui
 from scheduler import ReviewScheduler
+from widget import CompanWidget
 
 try:
     import pystray
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageFont
+    _HAS_TRAY = True
 except ImportError:
-    pystray = None
+    _HAS_TRAY = False
 
 ICON_SIZE = 64
 
 
-def _create_icon_image() -> "Image.Image":
-    """assets/icon.png가 없으면 간단한 아이콘 생성"""
-    icon_path = base.parent / "assets" / "icon.png"
+# ── 트레이 아이콘 이미지 ───────────────────────────────────
+
+def _make_icon_image():
+    icon_path = _base.parent / "assets" / "icon.png"
     if icon_path.exists():
-        from PIL import Image
         return Image.open(icon_path).convert("RGBA")
 
-    from PIL import Image, ImageDraw, ImageFont
     img = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    # 파란 원 배경
     draw.ellipse([4, 4, ICON_SIZE - 4, ICON_SIZE - 4], fill="#3B82F6")
-    # 흰색 'C' 텍스트
     try:
         font = ImageFont.truetype("arial.ttf", 36)
     except Exception:
         font = ImageFont.load_default()
-    draw.text((ICON_SIZE // 2, ICON_SIZE // 2), "C", fill="white", font=font, anchor="mm")
+    draw.text((ICON_SIZE // 2, ICON_SIZE // 2), "C",
+              fill="white", font=font, anchor="mm")
     return img
 
 
-def _build_menu(scheduler: ReviewScheduler):
-    def add_link_action(icon, item):
-        threading.Thread(
-            target=ui.show_add_link_dialog,
-            args=(database.add_link,),
-            daemon=True,
-        ).start()
+# ── 트레이 메뉴 ───────────────────────────────────────────
 
-    def list_links_action(icon, item):
-        links = database.get_all_links()
-        threading.Thread(
-            target=ui.show_link_list_dialog,
-            args=(links, database.delete_link),
-            daemon=True,
-        ).start()
+def _build_tray_menu(root: tk.Tk, widget: CompanWidget,
+                     scheduler: ReviewScheduler):
 
-    def quit_action(icon, item):
+    def _toggle_widget(icon, item):
+        root.after(0, widget.toggle)
+
+    def _show_list(icon, item):
+        def _open():
+            links = database.get_all_links()
+            ui.show_link_list_dialog(links, database.delete_link)
+        root.after(0, _open)
+
+    def _quit(icon, item):
         scheduler.stop()
         icon.stop()
+        root.after(0, root.quit)
 
     return pystray.Menu(
-        pystray.MenuItem("링크 추가", add_link_action, default=True),
-        pystray.MenuItem("등록된 링크 보기", list_links_action),
+        pystray.MenuItem("위젯 열기 / 닫기", _toggle_widget, default=True),
+        pystray.MenuItem("등록된 링크 보기", _show_list),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("종료", quit_action),
+        pystray.MenuItem("종료", _quit),
     )
 
 
-def run_with_tray():
+# ── 메인 진입 ─────────────────────────────────────────────
+
+def main():
     database.init_db()
+
+    # 숨겨진 Tkinter 루트 — mainloop 전용
+    root = tk.Tk()
+    root.withdraw()
+    root.title("Compan")
+
+    # 플로팅 위젯 생성 후 즉시 표시
+    widget = CompanWidget(root, on_add_callback=database.add_link)
+    widget.show()
+
+    # 복기 스케줄러
     scheduler = ReviewScheduler()
     scheduler.start()
 
-    image = _create_icon_image()
-    menu = _build_menu(scheduler)
-    icon = pystray.Icon("Compan", image, "Compan - 복기 알림", menu)
-    icon.run()
+    if _HAS_TRAY:
+        icon_img = _make_icon_image()
+        menu = _build_tray_menu(root, widget, scheduler)
+        tray = pystray.Icon("Compan", icon_img, "Compan - 복기 알림", menu)
 
+        # pystray 를 데몬 스레드에서 실행
+        tray_thread = threading.Thread(target=tray.run, daemon=True)
+        tray_thread.start()
+    else:
+        print("[Compan] pystray/Pillow 미설치 — 트레이 없이 실행합니다.")
 
-def run_headless():
-    """pystray 없이 콘솔 모드로 실행 (개발/테스트용)"""
-    import time
-    database.init_db()
-    scheduler = ReviewScheduler()
-    scheduler.start()
-    print("[Compan] 백그라운드 실행 중. Ctrl+C로 종료.")
     try:
-        while True:
-            time.sleep(10)
-    except KeyboardInterrupt:
+        root.mainloop()
+    finally:
         scheduler.stop()
-        print("[Compan] 종료.")
 
 
 if __name__ == "__main__":
-    if pystray is not None:
-        run_with_tray()
-    else:
-        print("[Compan] pystray/Pillow 미설치 — 콘솔 모드로 실행합니다.")
-        run_headless()
+    main()
