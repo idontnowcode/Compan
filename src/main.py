@@ -164,8 +164,8 @@ def _build_tray_menu(root, widget: CompanWidget, scheduler: ReviewScheduler):
         root.after(0, root.quit)
 
     return pystray.Menu(
-        pystray.MenuItem("위젯 열기 / 닫기", _toggle_widget, default=True),
-        pystray.MenuItem("등록된 링크 보기", _show_list),
+        pystray.MenuItem("위젯 열기 / 닫기", _toggle_widget),
+        pystray.MenuItem("등록된 링크 보기", _show_list, default=True),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("🧪 테스트 알림", _test_notify),
         pystray.Menu.SEPARATOR,
