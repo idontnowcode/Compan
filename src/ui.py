@@ -6,6 +6,7 @@ master(CTk root)를 받아 CTkToplevel로 생성 → wait_window로 모달 동�
 import customtkinter as ctk
 import threading
 import webbrowser
+from datetime import datetime
 
 BG      = "#1c2033"
 SURFACE = "#252a40"
@@ -18,6 +19,28 @@ OK      = "#22c55e"
 OKH     = "#16a34a"
 ERR     = "#ef4444"
 ROW_H   = "#2e3450"
+
+
+# ── 다음 복기 시각 포맷 ──────────────────────────────────
+
+def _format_next_review(dt_str: str) -> str:
+    if not dt_str:
+        return "완료"
+    try:
+        dt = datetime.fromisoformat(dt_str)
+    except ValueError:
+        return "—"
+    today = datetime.now().date()
+    diff = (dt.date() - today).days
+    time_str = dt.strftime("%H:%M")
+    if diff < 0:
+        return f"지연 {time_str}"
+    elif diff == 0:
+        return f"오늘 {time_str}"
+    elif diff == 1:
+        return f"내일 {time_str}"
+    else:
+        return f"{diff}일 후 {time_str}"
 
 
 # ── 페이지 제목 자동 감지 (외부에서도 import) ──────────────
@@ -187,6 +210,7 @@ def open_link_list_window(master, get_links_fn, on_delete_callback):
         ("",          20,  "w"),   # 체크박스 자리 (삭제 모드용)
         ("링크",       0,  "w"),   # 제목 (가변)
         ("잔여 복기", 50, "center"),
+        ("다음 복기", 80, "center"),
         ("등록일",    80, "center"),
         ("",          28,  "w"),   # 열기 버튼 자리
     ]):
@@ -223,15 +247,16 @@ def open_link_list_window(master, get_links_fn, on_delete_callback):
         last_ids.extend(row[0] for row in links)
 
         for row in links:
-            link_id, url, title, added_at, pending, total = row
+            link_id, url, title, added_at, pending, total, next_review_at = row
             added_short = added_at[:10]
             pending_txt = f"{pending}/{total}"
+            next_txt = _format_next_review(next_review_at)
 
             rf = ctk.CTkFrame(scroll, fg_color=SURFACE, corner_radius=8)
             rf.pack(fill="x", pady=3)
             row_frames.append(rf)
 
-            # grid 레이아웃: col0=체크박스, col1=제목, col2=복기, col3=날짜
+            # grid 레이아웃: col0=체크박스, col1=제목, col2=복기, col3=다음복기, col4=날짜, col5=열기
             inner = ctk.CTkFrame(rf, fg_color="transparent", corner_radius=0)
             inner.pack(fill="x", padx=10, pady=7)
             inner.columnconfigure(1, weight=1)
@@ -264,12 +289,18 @@ def open_link_list_window(master, get_links_fn, on_delete_callback):
                           text_color=SUB if pending == 0 else ACCENT,
                           width=50, anchor="center").grid(row=0, column=2, padx=4)
 
-            # 등록일 (col 3)
+            # 다음 복기 (col 3)
+            ctk.CTkLabel(inner, text=next_txt,
+                          font=ctk.CTkFont(family="Segoe UI", size=10),
+                          text_color=ACCENT if next_txt.startswith("지연") else SUB,
+                          width=80, anchor="center").grid(row=0, column=3, padx=4)
+
+            # 등록일 (col 4)
             ctk.CTkLabel(inner, text=added_short,
                           font=ctk.CTkFont(family="Segoe UI", size=10),
-                          text_color=SUB, width=80, anchor="center").grid(row=0, column=3)
+                          text_color=SUB, width=80, anchor="center").grid(row=0, column=4)
 
-            # 열기 버튼 (col 4)
+            # 열기 버튼 (col 5)
             ctk.CTkButton(
                 inner, text="↗", width=28, height=24,
                 corner_radius=6,
@@ -277,7 +308,7 @@ def open_link_list_window(master, get_links_fn, on_delete_callback):
                 fg_color=SURFACE, hover_color=ACCENT,
                 text_color=SUB,
                 command=lambda u=url: webbrowser.open(u),
-            ).grid(row=0, column=4, padx=(6, 0))
+            ).grid(row=0, column=5, padx=(6, 0))
 
     build_rows(get_links_fn())
 
