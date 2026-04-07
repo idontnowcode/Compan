@@ -145,9 +145,19 @@ def _build_tray_menu(root, widget: CompanWidget, scheduler: ReviewScheduler):
     def _toggle_widget(icon, item):
         root.after(0, widget.toggle)
 
-    def _show_list(icon, item):
-        root.after(0, lambda: ui.show_link_list_dialog(
-            root, database.get_all_links, database.delete_link))
+    _list_win: list = [None]   # 열린 리스트 창 참조 (중복 방지)
+
+    def _show_list(icon=None, item=None):
+        def _open():
+            # 이미 열려 있으면 포커스만
+            if _list_win[0] and _list_win[0].winfo_exists():
+                _list_win[0].lift()
+                _list_win[0].focus_force()
+                return
+            win = ui.open_link_list_window(
+                root, database.get_all_links, database.delete_link)
+            _list_win[0] = win
+        root.after(0, _open)
 
     def _test_notify(icon, item):
         root.after(0, lambda: show_test_dialog(

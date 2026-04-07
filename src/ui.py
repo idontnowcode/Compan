@@ -146,7 +146,8 @@ def show_add_link_dialog(master, on_add_callback):
 
 # ── 링크 목록 다이얼로그 ──────────────────────────────────
 
-def show_link_list_dialog(master, get_links_fn, on_delete_callback):
+def open_link_list_window(master, get_links_fn, on_delete_callback):
+    """링크 리스트 창을 열고 CTkToplevel 객체를 반환 (non-blocking)."""
     """
     get_links_fn : 인자 없는 callable → 링크 목록 반환 (database.get_all_links)
     on_delete_callback : callable(link_id)
@@ -355,4 +356,4 @@ def show_link_list_dialog(master, get_links_fn, on_delete_callback):
             win.destroy()
 
     win.bind("<Escape>", on_escape)
-    win.wait_window()
+    return win   # 호출자가 창 참조를 유지할 수 있도록 반환
