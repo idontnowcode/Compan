@@ -151,7 +151,6 @@ def show_link_list_dialog(master, links, on_delete_callback):
     win.title("Rested - 등록된 링크")
     win.attributes("-topmost", True)
     win.configure(fg_color=BG)
-    win.grab_set()
 
     w, h = 620, 420
     x = (win.winfo_screenwidth() - w) // 2
