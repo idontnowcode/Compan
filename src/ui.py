@@ -243,6 +243,16 @@ def show_link_list_dialog(master, get_links_fn, on_delete_callback):
                           font=ctk.CTkFont(family="Segoe UI", size=10),
                           text_color=SUB, width=80, anchor="center").grid(row=0, column=3)
 
+            # 열기 버튼 (col 4)
+            ctk.CTkButton(
+                inner, text="↗", width=28, height=24,
+                corner_radius=6,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                fg_color=SURFACE, hover_color=ACCENT,
+                text_color=SUB,
+                command=lambda u=url: webbrowser.open(u),
+            ).grid(row=0, column=4, padx=(6, 0))
+
     build_rows(get_links_fn())
 
     def auto_refresh():
