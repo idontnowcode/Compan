@@ -1,5 +1,11 @@
 """
 widget.py - 플로팅 URL 입력 위젯 (CustomTkinter)
+
+레이아웃:
+  [제목바]
+  [URL 입력 + + 버튼]
+  [알람 토글 바]        ← 미확인 알람이 있을 때만 표시
+  [알람 목록 패널]      ← 토글 바 클릭으로 열고 닫음
 """
 import customtkinter as ctk
 import tkinter as tk
@@ -12,19 +18,18 @@ BG      = "#1c2033"
 SURFACE = "#252a40"
 TITLE   = "#13162b"
 ACCENT  = "#3b82f6"
-ACH     = "#2563eb"   # accent hover
+ACH     = "#2563eb"
 TEXT    = "#e2e8f0"
 SUB     = "#8b95a8"
 OK      = "#22c55e"
 OKH     = "#16a34a"
 ERR     = "#ef4444"
-BADGE   = "#ef4444"
-ROW_H   = "#2e3450"
+ALARM_BAR = "#1a2540"   # 알람 토글 바 배경
 
-WIDGET_W       = 300
-WIDGET_H_BASE  = 76
-WIDGET_H_PANEL = 240
-R = 10   # 기본 corner radius
+WIDGET_W          = 300
+WIDGET_H_BASE     = 76   # 알람 없음
+WIDGET_H_TOGGLE   = 106  # 알람 있음 (토글 바만)
+WIDGET_H_PANEL    = 310  # 알람 패널 열림
 
 
 class CompanWidget:
@@ -47,10 +52,10 @@ class CompanWidget:
 
     # ── 외부 API (스레드-안전) ────────────────────────────
 
-    def show(self):       self._root.after(0, self._show)
-    def hide(self):       self._root.after(0, self._hide)
-    def toggle(self):     self._root.after(0, self._toggle)
-    def update_badge(self): self._root.after(0, self._refresh_badge)
+    def show(self):         self._root.after(0, self._show)
+    def hide(self):         self._root.after(0, self._hide)
+    def toggle(self):       self._root.after(0, self._toggle)
+    def update_badge(self): self._root.after(0, self._refresh_alarm_bar)
 
     # ── 내부 (메인 스레드) ───────────────────────────────
 
@@ -87,11 +92,15 @@ class CompanWidget:
         self._win = win
         self._build_titlebar(win)
         self._build_body(win)
+        self._build_alarm_toggle(win)
         self._build_panel(win)
+
+        # 초기 상태: 토글 바 & 패널 숨김
+        self._alarm_toggle.pack_forget()
         self._panel_frame.pack_forget()
 
         win.bind("<FocusOut>", self._on_focus_out)
-        self._refresh_badge()
+        self._refresh_alarm_bar()
 
     # ── 제목바 ────────────────────────────────────────────
 
@@ -110,14 +119,12 @@ class CompanWidget:
         lbl.bind("<ButtonPress-1>", self._drag_start)
         lbl.bind("<B1-Motion>",     self._drag_move)
 
-        # 닫기
         ctk.CTkButton(bar, text="✕", width=28, height=22,
                       corner_radius=6, fg_color="transparent",
                       hover_color="#3a2a2a", text_color=SUB,
                       font=ctk.CTkFont(size=11),
                       command=self._hide).pack(side="right", padx=(0, 4))
 
-        # 핀
         self._btn_pin = ctk.CTkButton(
             bar, text="📌", width=28, height=22,
             corner_radius=6, fg_color="transparent",
@@ -127,21 +134,11 @@ class CompanWidget:
         )
         self._btn_pin.pack(side="right", padx=2)
 
-        # 배지 (기본 숨김)
-        self._badge_btn = ctk.CTkButton(
-            bar, text="", width=28, height=18,
-            corner_radius=9, fg_color=BADGE,
-            hover_color="#c53030", text_color="white",
-            font=ctk.CTkFont(size=10, weight="bold"),
-            command=self._toggle_panel,
-        )
-
     # ── URL 입력 ──────────────────────────────────────────
 
     def _build_body(self, win):
         body = ctk.CTkFrame(win, fg_color=BG, corner_radius=0)
         body.pack(fill="x", padx=10, pady=(8, 8))
-        self._body_frame = body
 
         self._url_var = ctk.StringVar()
         self._entry = ctk.CTkEntry(
@@ -149,16 +146,13 @@ class CompanWidget:
             textvariable=self._url_var,
             placeholder_text="URL 입력 후 Enter",
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=SURFACE,
-            text_color=TEXT,
+            fg_color=SURFACE, text_color=TEXT,
             placeholder_text_color=SUB,
-            border_width=0,
-            corner_radius=8,
-            height=34,
+            border_width=0, corner_radius=8, height=34,
         )
         self._entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self._entry.bind("<Return>", self._do_add)
-        self._entry.bind("<Key>", self._on_entry_key)
+        self._entry.bind("<Key>",    self._on_entry_key)
 
         self._btn_add = ctk.CTkButton(
             body, text="+", width=34, height=34,
@@ -169,90 +163,158 @@ class CompanWidget:
         )
         self._btn_add.pack(side="right")
 
-    # ── 미확인 목록 패널 ──────────────────────────────────
+        self._feedback_mode = False
+        self._saved_url = ""
+
+    # ── 알람 토글 바 ──────────────────────────────────────
+
+    def _build_alarm_toggle(self, win):
+        """URL 입력 아래 알람 토글 섹션 (미확인 알람 있을 때만 표시)"""
+        bar = ctk.CTkFrame(win, fg_color=ALARM_BAR, corner_radius=0, height=30)
+        bar.pack_propagate(False)
+        self._alarm_toggle = bar
+
+        self._alarm_toggle_lbl = ctk.CTkLabel(
+            bar, text="",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color=ACCENT,
+        )
+        self._alarm_toggle_lbl.pack(side="left", padx=12)
+
+        self._alarm_arrow = ctk.CTkLabel(
+            bar, text="▼",
+            font=ctk.CTkFont(size=9),
+            text_color=SUB,
+        )
+        self._alarm_arrow.pack(side="right", padx=10)
+
+        # 클릭으로 패널 토글
+        for w in (bar, self._alarm_toggle_lbl, self._alarm_arrow):
+            w.bind("<Button-1>", lambda _: self._toggle_panel())
+            w.configure(cursor="hand2")
+
+    # ── 알람 패널 ─────────────────────────────────────────
 
     def _build_panel(self, win):
-        self._panel_frame = ctk.CTkFrame(win, fg_color=TITLE, corner_radius=0)
-
-        ctk.CTkLabel(
-            self._panel_frame,
-            text="미확인 복기",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color=SUB,
-        ).pack(anchor="w", padx=12, pady=(6, 2))
-
-        self._list_scroll = ctk.CTkScrollableFrame(
-            self._panel_frame,
-            fg_color="transparent",
+        self._panel_frame = ctk.CTkScrollableFrame(
+            win,
+            fg_color=TITLE,
             scrollbar_button_color=SURFACE,
             scrollbar_button_hover_color=ACCENT,
             corner_radius=0,
         )
-        self._list_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 6))
 
     def _refresh_panel(self):
-        for w in self._list_scroll.winfo_children():
+        for w in self._panel_frame.winfo_children():
             w.destroy()
+
         if not self._db_get_unconfirmed:
             return
+
         rows = self._db_get_unconfirmed()
         if not rows:
-            ctk.CTkLabel(self._list_scroll, text="모두 확인했어요 ✓",
+            ctk.CTkLabel(self._panel_frame,
+                         text="미확인 알람이 없습니다 ✓",
                          text_color=OK,
-                         font=ctk.CTkFont(size=11)).pack(pady=10)
+                         font=ctk.CTkFont(size=10)).pack(pady=14)
             return
+
         for review_id, url, title, days, _ in rows:
-            self._add_panel_row(review_id, url, title)
+            self._add_alarm_row(review_id, url, title, days)
 
-    def _add_panel_row(self, review_id, url, title):
-        row = ctk.CTkFrame(self._list_scroll, fg_color=SURFACE, corner_radius=8)
-        row.pack(fill="x", pady=2)
+    def _add_alarm_row(self, review_id, url, title, days):
+        row = ctk.CTkFrame(self._panel_frame, fg_color=SURFACE, corner_radius=8)
+        row.pack(fill="x", pady=2, padx=4)
 
-        short = title if len(title) <= 26 else title[:24] + "…"
-        ctk.CTkLabel(row, text=short, text_color=TEXT,
-                     font=ctk.CTkFont(size=10), anchor="w",
-                     cursor="hand2").pack(side="left", fill="x",
-                                         expand=True, padx=(8, 4), pady=6)
+        # 왼쪽: 제목 + URL
+        left = ctk.CTkFrame(row, fg_color="transparent", corner_radius=0)
+        left.pack(side="left", fill="x", expand=True, padx=(10, 6), pady=8)
 
+        short_title = title if len(title) <= 24 else title[:22] + "…"
+        ctk.CTkLabel(left, text=short_title, text_color=TEXT,
+                     font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                     anchor="w").pack(fill="x")
+
+        short_url = url if len(url) <= 32 else url[:30] + "…"
+        url_lbl = ctk.CTkLabel(left, text=short_url, text_color=SUB,
+                                font=ctk.CTkFont(family="Segoe UI", size=9),
+                                anchor="w", cursor="hand2")
+        url_lbl.pack(fill="x")
+        url_lbl.bind("<Button-1>", lambda _, u=url: webbrowser.open(u))
+
+        # 오른쪽: 복기 완료 버튼
         ctk.CTkButton(
-            row, text="✓", width=30, height=24,
-            corner_radius=6, font=ctk.CTkFont(size=11, weight="bold"),
+            row, text="완료", width=46, height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
             fg_color=OK, hover_color=OKH,
-            command=lambda rid=review_id, u=url: self._confirm(rid, u),
-        ).pack(side="right", padx=(0, 6), pady=4)
+            command=lambda rid=review_id: self._confirm(rid),
+        ).pack(side="right", padx=(0, 8), pady=8)
 
-    def _toggle_panel(self):
-        self._panel_open = not self._panel_open
-        if self._panel_open:
-            self._refresh_panel()
-            self._panel_frame.pack(fill="both", expand=True)
-            self._win.geometry(f"{WIDGET_W}x{WIDGET_H_PANEL}")
-        else:
-            self._panel_frame.pack_forget()
-            self._win.geometry(f"{WIDGET_W}x{WIDGET_H_BASE}")
+    # ── 알람 바 / 패널 갱신 ───────────────────────────────
 
-    def _confirm(self, review_id, url):
-        webbrowser.open(url)
-        if self._db_confirm:
-            self._db_confirm(review_id)
-        self._refresh_badge()
-        self._refresh_panel()
-
-    # ── 배지 ──────────────────────────────────────────────
-
-    def _refresh_badge(self):
+    def _refresh_alarm_bar(self):
         if not self._win or not self._win.winfo_exists():
             return
         if not self._db_get_unconfirmed:
             return
+
         count = len(self._db_get_unconfirmed())
+
         if count > 0:
-            self._badge_btn.configure(text=f" {count} ")
-            self._badge_btn.pack(side="right", padx=(0, 2))
+            self._alarm_toggle_lbl.configure(text=f"📋  미확인 알람  {count}건")
+            # 토글 바가 숨겨져 있으면 표시
+            if not self._alarm_toggle.winfo_ismapped():
+                self._alarm_toggle.pack(fill="x", after=self._get_body_frame())
+                if not self._panel_open:
+                    self._set_height(WIDGET_H_TOGGLE)
         else:
-            self._badge_btn.pack_forget()
+            # 알람 없으면 패널 닫고 토글 바 숨김
             if self._panel_open:
-                self._toggle_panel()
+                self._panel_frame.pack_forget()
+                self._panel_open = False
+            self._alarm_toggle.pack_forget()
+            self._set_height(WIDGET_H_BASE)
+
+        if self._panel_open:
+            self._refresh_panel()
+
+    def _get_body_frame(self):
+        """body frame 참조 반환 (pack after 기준점)"""
+        for w in self._win.winfo_children():
+            if isinstance(w, ctk.CTkFrame) and w != self._alarm_toggle \
+                    and w != self._panel_frame:
+                # titlebar 이후 body frame
+                children = self._win.winfo_children()
+                idx = children.index(w)
+                if idx == 1:
+                    return w
+        return None
+
+    def _toggle_panel(self):
+        if not self._win or not self._win.winfo_exists():
+            return
+
+        self._panel_open = not self._panel_open
+        if self._panel_open:
+            self._refresh_panel()
+            self._panel_frame.pack(fill="both", expand=True)
+            self._alarm_arrow.configure(text="▲")
+            self._set_height(WIDGET_H_PANEL)
+        else:
+            self._panel_frame.pack_forget()
+            self._alarm_arrow.configure(text="▼")
+            self._set_height(WIDGET_H_TOGGLE)
+
+    def _set_height(self, h):
+        x = self._win.winfo_x()
+        y = self._win.winfo_y()
+        self._win.geometry(f"{WIDGET_W}x{h}+{x}+{y}")
+
+    def _confirm(self, review_id):
+        if self._db_confirm:
+            self._db_confirm(review_id)
+        self._refresh_alarm_bar()
 
     # ── 핀 토글 ───────────────────────────────────────────
 
