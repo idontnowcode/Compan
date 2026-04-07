@@ -176,6 +176,31 @@ def show_link_list_dialog(master, get_links_fn, on_delete_callback):
                  font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                  text_color=TEXT).pack(side="left", padx=16)
 
+    # ── 열 제목 ───────────────────────────────────────────
+    col_hdr = ctk.CTkFrame(win, fg_color=SURFACE, corner_radius=0, height=28)
+    col_hdr.pack(fill="x", padx=12, pady=(8, 0))
+    col_hdr.pack_propagate(False)
+    col_hdr.columnconfigure(1, weight=1)
+
+    for col, (text, width, anchor) in enumerate([
+        ("",          20,  "w"),   # 체크박스 자리 (삭제 모드용)
+        ("링크",       0,  "w"),   # 제목 (가변)
+        ("잔여 복기", 50, "center"),
+        ("등록일",    80, "center"),
+        ("",          28,  "w"),   # 열기 버튼 자리
+    ]):
+        ctk.CTkLabel(
+            col_hdr, text=text,
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            text_color=SUB,
+            width=width if width else 0,
+            anchor=anchor,
+        ).grid(row=0, column=col,
+               padx=(10 if col == 0 else 4, 4),
+               pady=4,
+               sticky="ew" if col == 1 else "")
+    col_hdr.columnconfigure(1, weight=1)
+
     # ── 스크롤 목록 ────────────────────────────────────────
     scroll = ctk.CTkScrollableFrame(
         win, fg_color=BG,
