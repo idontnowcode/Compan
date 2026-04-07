@@ -3,7 +3,7 @@ name: Build Rested.exe
 on:
   push:
     branches: [main]
-  workflow_dispatch:   # 수동 실행 버튼
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,18 +19,30 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+        shell: cmd
+
+      - name: Create assets placeholder
+        # assets/ 가 비어있으면 --add-data 가 실패하므로 더미 파일 보장
         run: |
-          pip install -r requirements.txt pyinstaller
+          if not exist assets mkdir assets
+          if not exist assets\placeholder (echo. > assets\placeholder)
+        shell: cmd
 
       - name: Build exe
-        run: |
-          pyinstaller `
-            --onefile `
-            --windowed `
-            --name Rested `
-            --add-data "assets;assets" `
-            --paths src `
-            src/main.py
+        run: >-
+          pyinstaller
+          --onefile
+          --windowed
+          --name Rested
+          --paths src
+          --collect-all customtkinter
+          --hidden-import pystray._win32
+          --hidden-import winotify
+          --hidden-import PIL._imagingtk
+          --add-data "assets;assets"
+          src/main.py
+        shell: cmd
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
