@@ -162,9 +162,11 @@ def show_link_list_dialog(master, get_links_fn, on_delete_callback):
     win.geometry(f"{w}x{h}+{x}+{y}")
 
     # 상태
-    delete_mode = [False]
-    check_vars: dict    = {}   # link_id → BooleanVar
-    cb_widgets: dict    = {}   # link_id → CTkCheckBox
+    delete_mode  = [False]
+    check_vars:  dict = {}   # link_id → BooleanVar
+    cb_widgets:  dict = {}   # link_id → CTkCheckBox
+    row_frames:  list = []   # 생성한 행 프레임 목록 (안전한 cleanup용)
+    last_ids:    list = []   # 마지막으로 그린 link_id 목록 (변경 감지용)
 
     # ── 헤더 ──────────────────────────────────────────────
     hdr = ctk.CTkFrame(win, fg_color=TITLE, corner_radius=0, height=44)
@@ -186,8 +188,13 @@ def show_link_list_dialog(master, get_links_fn, on_delete_callback):
     def build_rows(links):
         check_vars.clear()
         cb_widgets.clear()
-        for w in scroll.winfo_children():
-            w.destroy()
+        # CTkScrollableFrame 내부 위젯을 건드리지 않고 직접 추적한 행만 제거
+        for rf in row_frames:
+            if rf.winfo_exists():
+                rf.destroy()
+        row_frames.clear()
+        last_ids.clear()
+        last_ids.extend(row[0] for row in links)
 
         for row in links:
             link_id, url, title, added_at, pending, total = row
@@ -196,6 +203,7 @@ def show_link_list_dialog(master, get_links_fn, on_delete_callback):
 
             rf = ctk.CTkFrame(scroll, fg_color=SURFACE, corner_radius=8)
             rf.pack(fill="x", pady=3)
+            row_frames.append(rf)
 
             # grid 레이아웃: col0=체크박스, col1=제목, col2=복기, col3=날짜
             inner = ctk.CTkFrame(rf, fg_color="transparent", corner_radius=0)
@@ -236,6 +244,19 @@ def show_link_list_dialog(master, get_links_fn, on_delete_callback):
                           text_color=SUB, width=80, anchor="center").grid(row=0, column=3)
 
     build_rows(get_links_fn())
+
+    def auto_refresh():
+        """삭제 모드가 아닐 때 2초마다 변경 감지 후 갱신"""
+        if not win.winfo_exists():
+            return
+        if not delete_mode[0]:
+            current = get_links_fn()
+            current_ids = [r[0] for r in current]
+            if current_ids != last_ids:
+                build_rows(current)
+        win.after(2000, auto_refresh)
+
+    win.after(2000, auto_refresh)
 
     # ── 버튼 바 ───────────────────────────────────────────
     bar = ctk.CTkFrame(win, fg_color=TITLE, corner_radius=0, height=50)
