@@ -10,6 +10,20 @@ DB_PATH = Path.home() / ".rested" / "rested.db"
 
 REVIEW_INTERVALS = [1, 3, 7, 14, 30]   # 에빙하우스 복기 주기 (일)
 SNOOZE_HOURS     = 3                    # 미확인 시 재알림 주기 (시간)
+BASE_HOUR        = 9                    # 알림 기준 시각 (AM 9)
+SLOT_HOURS       = [9, 12, 15, 18, 21]  # 3시간 단위 슬롯
+
+
+def _next_slot(after: datetime) -> datetime:
+    """after 이후 첫 번째 알림 슬롯 반환 (09, 12, 15, 18, 21시 중 가장 가까운 미래)."""
+    for h in SLOT_HOURS:
+        candidate = after.replace(hour=h, minute=0, second=0, microsecond=0)
+        if candidate > after:
+            return candidate
+    # 당일 슬롯 소진 → 다음날 09:00
+    return (after + timedelta(days=1)).replace(
+        hour=BASE_HOUR, minute=0, second=0, microsecond=0
+    )
 
 
 def init_db():
@@ -40,6 +54,7 @@ def init_db():
     for col, definition in [
         ("confirmed",       "INTEGER DEFAULT 0"),
         ("last_notified_at","TEXT"),
+        ("next_notify_at",  "TEXT"),
     ]:
         try:
             c.execute(f"ALTER TABLE reviews ADD COLUMN {col} {definition}")
@@ -62,7 +77,10 @@ def add_link(url: str, title: str = None) -> int:
     link_id = c.lastrowid
 
     for days in REVIEW_INTERVALS:
-        scheduled = now + timedelta(days=days)
+        # 복기 알림은 해당 날짜 AM 9:00으로 고정
+        scheduled = (now + timedelta(days=days)).replace(
+            hour=BASE_HOUR, minute=0, second=0, microsecond=0
+        )
         c.execute(
             "INSERT INTO reviews (link_id, interval_days, scheduled_at) VALUES (?, ?, ?)",
             (link_id, days, scheduled.isoformat()),
@@ -93,20 +111,21 @@ def get_due_reviews() -> list:
 def get_reviews_to_renotify() -> list:
     """
     알림은 보냈지만 아직 확인 안 된 항목 중
-    마지막 알림으로부터 SNOOZE_HOURS 시간 이상 지난 것
+    next_notify_at 슬롯이 도래한 것
     """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    cutoff = (datetime.now() - timedelta(hours=SNOOZE_HOURS)).isoformat()
+    now = datetime.now().isoformat()
     c.execute("""
         SELECT r.id, l.url, l.title, r.interval_days
         FROM reviews r
         JOIN links l ON r.link_id = l.id
         WHERE r.notified = 1
           AND r.confirmed = 0
-          AND r.last_notified_at <= ?
-        ORDER BY r.last_notified_at ASC
-    """, (cutoff,))
+          AND r.next_notify_at IS NOT NULL
+          AND r.next_notify_at <= ?
+        ORDER BY r.next_notify_at ASC
+    """, (now,))
     results = c.fetchall()
     conn.close()
     return results
@@ -138,25 +157,26 @@ def count_unconfirmed() -> int:
 
 
 def mark_notified(review_id: int):
-    """처음 알림 발송 시 호출"""
+    """처음 알림 발송 시 호출 — 다음 슬롯(next_notify_at) 설정"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    now = datetime.now().isoformat()
+    now = datetime.now()
     c.execute(
-        "UPDATE reviews SET notified=1, last_notified_at=? WHERE id=?",
-        (now, review_id),
+        "UPDATE reviews SET notified=1, last_notified_at=?, next_notify_at=? WHERE id=?",
+        (now.isoformat(), _next_slot(now).isoformat(), review_id),
     )
     conn.commit()
     conn.close()
 
 
 def mark_renotified(review_id: int):
-    """재알림 발송 시 last_notified_at 갱신"""
+    """재알림 발송 시 next_notify_at을 다음 슬롯으로 갱신"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    now = datetime.now()
     c.execute(
-        "UPDATE reviews SET last_notified_at=? WHERE id=?",
-        (datetime.now().isoformat(), review_id),
+        "UPDATE reviews SET last_notified_at=?, next_notify_at=? WHERE id=?",
+        (now.isoformat(), _next_slot(now).isoformat(), review_id),
     )
     conn.commit()
     conn.close()
@@ -172,13 +192,16 @@ def confirm_review(review_id: int):
 
 
 def get_all_links() -> list:
-    """등록된 모든 링크 반환 (최신순)"""
+    """등록된 모든 링크 반환 (최신순).
+    반환 컬럼: id, url, title, added_at, pending_reviews, total_reviews, next_review_at
+    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
         SELECT l.id, l.url, l.title, l.added_at,
-               COUNT(CASE WHEN r.notified = 0 THEN 1 END) as pending_reviews,
-               COUNT(r.id) as total_reviews
+               COUNT(CASE WHEN r.confirmed = 0 THEN 1 END) as pending_reviews,
+               COUNT(r.id) as total_reviews,
+               MIN(CASE WHEN r.confirmed = 0 THEN r.scheduled_at END) as next_review_at
         FROM links l
         LEFT JOIN reviews r ON l.id = r.link_id
         GROUP BY l.id

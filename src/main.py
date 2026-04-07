@@ -11,6 +11,7 @@ main.py - Rested 진입점
 """
 import sys
 import threading
+import time as _time
 from pathlib import Path
 
 if getattr(sys, "frozen", False):
@@ -140,24 +141,38 @@ def show_test_dialog(root, on_confirm, on_badge_update):
 
 # ── 트레이 메뉴 ───────────────────────────────────────────
 
-def _build_tray_menu(root, widget: CompanWidget, scheduler: ReviewScheduler):
+def _build_tray(root, widget: CompanWidget, scheduler: ReviewScheduler):
+    """트레이 아이콘 + 메뉴 생성. 더블클릭으로만 리스트 열림."""
+
+    _last_click: list[float] = [0.0]
+    _DBLCLICK = 0.4  # seconds
+
+    _list_win: list = [None]   # 열린 리스트 창 참조 (중복 방지)
+
+    def _open_list():
+        """리스트 창 열기 — 이미 열려 있으면 포커스만"""
+        if _list_win[0] and _list_win[0].winfo_exists():
+            _list_win[0].lift()
+            _list_win[0].focus_force()
+            return
+        win = ui.open_link_list_window(
+            root, database.get_all_links, database.delete_link)
+        _list_win[0] = win
+
+    def _on_activate(icon):
+        """싱글/더블 클릭 모두 여기로 옴 — 400ms 내 2회 클릭 시만 열기."""
+        now = _time.time()
+        if now - _last_click[0] < _DBLCLICK:
+            _last_click[0] = 0.0
+            root.after(0, _open_list)
+        else:
+            _last_click[0] = now
 
     def _toggle_widget(icon, item):
         root.after(0, widget.toggle)
 
-    _list_win: list = [None]   # 열린 리스트 창 참조 (중복 방지)
-
-    def _show_list(icon=None, item=None):
-        def _open():
-            # 이미 열려 있으면 포커스만
-            if _list_win[0] and _list_win[0].winfo_exists():
-                _list_win[0].lift()
-                _list_win[0].focus_force()
-                return
-            win = ui.open_link_list_window(
-                root, database.get_all_links, database.delete_link)
-            _list_win[0] = win
-        root.after(0, _open)
+    def _show_list(icon, item):
+        root.after(0, _open_list)
 
     def _test_notify(icon, item):
         root.after(0, lambda: show_test_dialog(
@@ -171,14 +186,15 @@ def _build_tray_menu(root, widget: CompanWidget, scheduler: ReviewScheduler):
         icon.stop()
         root.after(0, root.quit)
 
-    return pystray.Menu(
+    menu = pystray.Menu(
         pystray.MenuItem("위젯 열기 / 닫기", _toggle_widget),
-        pystray.MenuItem("등록된 링크 보기", _show_list, default=True),
+        pystray.MenuItem("등록된 링크 보기", _show_list),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("🧪 테스트 알림", _test_notify),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("종료", _quit),
     )
+    return menu, _on_activate
 
 
 # ── 메인 ──────────────────────────────────────────────────
@@ -211,10 +227,12 @@ def main():
     scheduler.start()
 
     if _HAS_TRAY:
+        menu, on_activate = _build_tray(root, widget, scheduler)
         tray = pystray.Icon(
             "Rested", _make_icon_image(), "Rested - 복기 알림",
-            _build_tray_menu(root, widget, scheduler),
+            menu,
         )
+        tray.on_activate = on_activate
         threading.Thread(target=tray.run, daemon=True).start()
     else:
         print("[Rested] pystray/Pillow 미설치 — 트레이 없이 실행합니다.")

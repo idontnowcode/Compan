@@ -45,6 +45,7 @@ class CompanWidget:
 
         self._db_get_unconfirmed = None
         self._db_confirm = None
+        self._alarm_rows: list = []   # 패널 내 row 위젯 추적 (winfo_children 대신)
 
     def set_db_callbacks(self, get_unconfirmed, confirm_review):
         self._db_get_unconfirmed = get_unconfirmed
@@ -101,6 +102,7 @@ class CompanWidget:
 
         win.bind("<FocusOut>", self._on_focus_out)
         self._refresh_alarm_bar()
+        self._schedule_auto_refresh()
 
     # ── 제목바 ────────────────────────────────────────────
 
@@ -205,18 +207,23 @@ class CompanWidget:
         )
 
     def _refresh_panel(self):
-        for w in self._panel_frame.winfo_children():
-            w.destroy()
+        # winfo_children() 대신 추적 리스트로 정리 (CTkScrollableFrame 내부 위젯 보호)
+        for w in self._alarm_rows:
+            if w.winfo_exists():
+                w.destroy()
+        self._alarm_rows.clear()
 
         if not self._db_get_unconfirmed:
             return
 
         rows = self._db_get_unconfirmed()
         if not rows:
-            ctk.CTkLabel(self._panel_frame,
-                         text="미확인 알람이 없습니다 ✓",
-                         text_color=OK,
-                         font=ctk.CTkFont(size=10)).pack(pady=14)
+            lbl = ctk.CTkLabel(self._panel_frame,
+                               text="미확인 알람이 없습니다 ✓",
+                               text_color=OK,
+                               font=ctk.CTkFont(size=10))
+            lbl.pack(pady=14)
+            self._alarm_rows.append(lbl)
             return
 
         for review_id, url, title, days, _ in rows:
@@ -250,6 +257,8 @@ class CompanWidget:
             fg_color=OK, hover_color=OKH,
             command=lambda rid=review_id: self._confirm(rid),
         ).pack(side="right", padx=(0, 8), pady=8)
+
+        self._alarm_rows.append(row)
 
     # ── 알람 바 / 패널 갱신 ───────────────────────────────
 
@@ -315,6 +324,12 @@ class CompanWidget:
         if self._db_confirm:
             self._db_confirm(review_id)
         self._refresh_alarm_bar()
+
+    def _schedule_auto_refresh(self):
+        """5초마다 알람 바 & 패널 갱신 (창이 살아있는 동안)"""
+        if self._win and self._win.winfo_exists():
+            self._refresh_alarm_bar()
+            self._win.after(5000, self._schedule_auto_refresh)
 
     # ── 핀 토글 ───────────────────────────────────────────
 
