@@ -146,7 +146,11 @@ def show_add_link_dialog(master, on_add_callback):
 
 # ── 링크 목록 다이얼로그 ──────────────────────────────────
 
-def show_link_list_dialog(master, links, on_delete_callback):
+def show_link_list_dialog(master, get_links_fn, on_delete_callback):
+    """
+    get_links_fn : 인자 없는 callable → 링크 목록 반환 (database.get_all_links)
+    on_delete_callback : callable(link_id)
+    """
     win = ctk.CTkToplevel(master)
     win.title("Rested - 등록된 링크")
     win.attributes("-topmost", True)
@@ -157,7 +161,12 @@ def show_link_list_dialog(master, links, on_delete_callback):
     y = (win.winfo_screenheight() - h) // 2
     win.geometry(f"{w}x{h}+{x}+{y}")
 
-    # 헤더
+    # 상태
+    delete_mode = [False]
+    check_vars: dict    = {}   # link_id → BooleanVar
+    cb_widgets: dict    = {}   # link_id → CTkCheckBox
+
+    # ── 헤더 ──────────────────────────────────────────────
     hdr = ctk.CTkFrame(win, fg_color=TITLE, corner_radius=0, height=44)
     hdr.pack(fill="x")
     hdr.pack_propagate(False)
@@ -165,7 +174,7 @@ def show_link_list_dialog(master, links, on_delete_callback):
                  font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                  text_color=TEXT).pack(side="left", padx=16)
 
-    # 스크롤 목록
+    # ── 스크롤 목록 ────────────────────────────────────────
     scroll = ctk.CTkScrollableFrame(
         win, fg_color=BG,
         scrollbar_button_color=SURFACE,
@@ -174,51 +183,61 @@ def show_link_list_dialog(master, links, on_delete_callback):
     )
     scroll.pack(fill="both", expand=True, padx=12, pady=(12, 0))
 
-    selected: list[int] = []   # [link_id]
+    def build_rows(links):
+        check_vars.clear()
+        cb_widgets.clear()
+        for w in scroll.winfo_children():
+            w.destroy()
 
-    id_map: dict[int, tuple] = {}   # row_frame → (link_id, url)
-    row_frames: list[ctk.CTkFrame] = []
+        for row in links:
+            link_id, url, title, added_at, pending, total = row
+            added_short = added_at[:10]
+            pending_txt = f"{pending}/{total}"
 
-    def select_row(rf, link_id, url):
-        for f in row_frames:
-            f.configure(fg_color=SURFACE)
-        rf.configure(fg_color=ROW_H)
-        selected.clear()
-        selected.append(link_id)
-        selected.append(url)  # type: ignore
+            rf = ctk.CTkFrame(scroll, fg_color=SURFACE, corner_radius=8)
+            rf.pack(fill="x", pady=3)
 
-    for row in links:
-        link_id, url, title, added_at, pending, total = row
-        added_short = added_at[:10]
-        pending_txt = f"{pending}/{total}"
+            # grid 레이아웃: col0=체크박스, col1=제목, col2=복기, col3=날짜
+            inner = ctk.CTkFrame(rf, fg_color="transparent", corner_radius=0)
+            inner.pack(fill="x", padx=10, pady=7)
+            inner.columnconfigure(1, weight=1)
 
-        rf = ctk.CTkFrame(scroll, fg_color=SURFACE, corner_radius=8, cursor="hand2")
-        rf.pack(fill="x", pady=3)
-        row_frames.append(rf)
-        id_map[id(rf)] = (link_id, url)
+            # 체크박스 (col 0) — 기본 숨김
+            var = ctk.BooleanVar(value=False)
+            check_vars[link_id] = var
+            cb = ctk.CTkCheckBox(
+                inner, variable=var, text="",
+                width=20, height=20,
+                checkbox_width=18, checkbox_height=18,
+                corner_radius=4,
+                fg_color=ACCENT, hover_color=ACH, border_color=SUB,
+            )
+            cb.grid(row=0, column=0, padx=(0, 8), sticky="w")
+            cb.grid_remove()
+            cb_widgets[link_id] = cb
 
-        inner = ctk.CTkFrame(rf, fg_color="transparent", corner_radius=0)
-        inner.pack(fill="x", padx=10, pady=7)
+            # 제목 (col 1)
+            lbl = ctk.CTkLabel(inner, text=title,
+                                font=ctk.CTkFont(family="Segoe UI", size=11),
+                                text_color=TEXT, anchor="w")
+            lbl.grid(row=0, column=1, sticky="ew")
+            lbl.bind("<Double-1>", lambda e, u=url: webbrowser.open(u))
+            inner.bind("<Double-1>", lambda e, u=url: webbrowser.open(u))
 
-        ctk.CTkLabel(inner, text=title,
-                     font=ctk.CTkFont(family="Segoe UI", size=11),
-                     text_color=TEXT, anchor="w").pack(side="left", fill="x", expand=True)
+            # 남은 복기 (col 2)
+            ctk.CTkLabel(inner, text=pending_txt,
+                          font=ctk.CTkFont(family="Segoe UI", size=10),
+                          text_color=SUB if pending == 0 else ACCENT,
+                          width=50, anchor="center").grid(row=0, column=2, padx=4)
 
-        ctk.CTkLabel(inner, text=added_short,
-                     font=ctk.CTkFont(family="Segoe UI", size=10),
-                     text_color=SUB, width=80, anchor="center").pack(side="right", padx=(8, 0))
+            # 등록일 (col 3)
+            ctk.CTkLabel(inner, text=added_short,
+                          font=ctk.CTkFont(family="Segoe UI", size=10),
+                          text_color=SUB, width=80, anchor="center").grid(row=0, column=3)
 
-        ctk.CTkLabel(inner, text=pending_txt,
-                     font=ctk.CTkFont(family="Segoe UI", size=10),
-                     text_color=SUB if pending == 0 else ACCENT,
-                     width=50, anchor="center").pack(side="right")
+    build_rows(get_links_fn())
 
-        rf.bind("<Button-1>",   lambda e, f=rf, lid=link_id, u=url: select_row(f, lid, u))
-        rf.bind("<Double-1>",   lambda e, u=url: webbrowser.open(u))
-        inner.bind("<Button-1>",   lambda e, f=rf, lid=link_id, u=url: select_row(f, lid, u))
-        inner.bind("<Double-1>",   lambda e, u=url: webbrowser.open(u))
-
-    # 버튼 바
+    # ── 버튼 바 ───────────────────────────────────────────
     bar = ctk.CTkFrame(win, fg_color=TITLE, corner_radius=0, height=50)
     bar.pack(fill="x", pady=(8, 0))
     bar.pack_propagate(False)
@@ -226,28 +245,58 @@ def show_link_list_dialog(master, links, on_delete_callback):
     inner_bar = ctk.CTkFrame(bar, fg_color="transparent", corner_radius=0)
     inner_bar.pack(expand=True, fill="both", padx=12)
 
-    def open_sel():
-        if len(selected) >= 2:
-            webbrowser.open(selected[1])  # type: ignore
+    def enter_delete_mode():
+        delete_mode[0] = True
+        for cb in cb_widgets.values():
+            cb.grid()
+        btn_delete.configure(text="선택한 항목 삭제", command=confirm_delete,
+                              fg_color="#991b1b", hover_color="#b91c1c", width=130)
+        btn_cancel.pack(side="left", padx=(6, 0), pady=10)
 
-    def delete_sel():
-        if not selected:
+    def exit_delete_mode():
+        delete_mode[0] = False
+        for var in check_vars.values():
+            var.set(False)
+        for cb in cb_widgets.values():
+            cb.grid_remove()
+        btn_delete.configure(text="삭제", command=enter_delete_mode,
+                              fg_color="#7f1d1d", hover_color="#991b1b", width=70)
+        btn_cancel.pack_forget()
+
+    def confirm_delete():
+        ids = [lid for lid, v in check_vars.items() if v.get()]
+        if not ids:
             return
-        link_id = selected[0]
-        on_delete_callback(link_id)
-        win.destroy()
-        show_link_list_dialog(master, [], on_delete_callback)  # refresh
+        for lid in ids:
+            on_delete_callback(lid)
+        build_rows(get_links_fn())
+        exit_delete_mode()
 
-    ctk.CTkButton(inner_bar, text="열기", width=80, height=30,
-                  corner_radius=8, fg_color=ACCENT, hover_color=ACH,
-                  font=ctk.CTkFont(size=11), command=open_sel).pack(side="left", pady=10, padx=(0, 6))
-    ctk.CTkButton(inner_bar, text="삭제", width=70, height=30,
-                  corner_radius=8, fg_color="#7f1d1d", hover_color="#991b1b",
-                  font=ctk.CTkFont(size=11), command=delete_sel).pack(side="left", pady=10)
+    btn_delete = ctk.CTkButton(
+        inner_bar, text="삭제", width=70, height=30,
+        corner_radius=8, fg_color="#7f1d1d", hover_color="#991b1b",
+        font=ctk.CTkFont(size=11), command=enter_delete_mode,
+    )
+    btn_delete.pack(side="left", pady=10)
+
+    btn_cancel = ctk.CTkButton(
+        inner_bar, text="취소", width=60, height=30,
+        corner_radius=8, fg_color=SURFACE, hover_color=ROW_H,
+        text_color=TEXT, font=ctk.CTkFont(size=11),
+        command=exit_delete_mode,
+    )
+    # btn_cancel은 삭제 모드 진입 시에만 표시
+
     ctk.CTkButton(inner_bar, text="닫기", width=70, height=30,
                   corner_radius=8, fg_color=SURFACE, hover_color=ROW_H,
                   text_color=TEXT, font=ctk.CTkFont(size=11),
                   command=win.destroy).pack(side="right", pady=10)
 
-    win.bind("<Escape>", lambda _: win.destroy())
+    def on_escape(_=None):
+        if delete_mode[0]:
+            exit_delete_mode()
+        else:
+            win.destroy()
+
+    win.bind("<Escape>", on_escape)
     win.wait_window()

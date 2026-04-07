@@ -146,10 +146,8 @@ def _build_tray_menu(root, widget: CompanWidget, scheduler: ReviewScheduler):
         root.after(0, widget.toggle)
 
     def _show_list(icon, item):
-        def _open():
-            links = database.get_all_links()
-            ui.show_link_list_dialog(root, links, database.delete_link)
-        root.after(0, _open)
+        root.after(0, lambda: ui.show_link_list_dialog(
+            root, database.get_all_links, database.delete_link))
 
     def _test_notify(icon, item):
         root.after(0, lambda: show_test_dialog(
